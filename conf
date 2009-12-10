@@ -1,5 +1,5 @@
 # update from repositories that match
-update --label Debian-Security --trusted
+upgrade --label Debian-Security --trusted
 
 # install some useful stuff
 install git-core fakeroot build-essential postfix
@@ -10,23 +10,21 @@ remove exim4 pppd portmap
 
 # only on lenny machines, until the next class statement
 class lenny
-install emacs22 bash-completion
+ install emacs22 bash-completion
 
 # only on squeeze
 class squeeze
-install emacs23
+ install emacs23
 
-only on mailserver machines
+# only on mailserver machines
 class IMAPSERVER
-install cyrus21-imapd
+ install cyrus21-imapd
 # and hold it at 2.1.18-5.1
-hold cyrus12-imapd 2.1.18-5.1 
+ hold cyrus12-imapd 2.1.18-5.1 
 
 # machines that are class FOO or class BAR
 #class FOO BAR
 
 class LAPTOP
-install pppd # counter the remove above
-update # update everything
-
-      
+ install pppd # counter the remove above
+ upgrade # update everything
