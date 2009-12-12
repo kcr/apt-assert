@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import sys, shlex
+import sys, os, shlex, logging
 import apt
 
 class InstalledFilter(apt.cache.Filter):
@@ -15,6 +15,30 @@ class UpgradableFilter(InstalledFilter):
     def apply(self, pkg):
         return super(UpgradableFilter, self).apply(pkg) and  pkg.installed < pkg.candidate
 
+class LogFetchProgress(apt.progress.FetchProgress):
+    """ progress object for logger;  adapted from apt.progress.TextFetchProgress """
+
+    def __init__(self, log):
+        super(LogFetchProgress, self).__init__()
+        self.log = log
+
+    def updateStatus(self, uri, descr, shortDescr, status):
+        """Called when the status of an item changes.
+
+        This happens eg. when the downloads fails or is completed.
+        """
+        if status != self.dlQueued:
+            self.log.info("%s %s", self.dlStatusStr[status], descr)
+
+    def stop(self):
+        """Called when all files have been fetched."""
+        self.log.info('Done downloading')
+
+    def mediaChange(self, medium, drive):
+        """react to media change events."""
+        self.log.error('Media change: looking for %s in %s', medium, drive)
+        return False
+
 class configuration(object):
     class configurationError(Exception):
         pass
@@ -28,7 +52,7 @@ class configuration(object):
         def call(self, argv):
             self.run(argv)
         def run(self, argv):
-            print self.__class__.__name__, 'is unimplemented'
+            self.conf.log.error('%s is unimplemented', self.__class__.__name__)
     class action(confcommand):
         def call(self, argv):
             if self.conf.act:
@@ -54,10 +78,11 @@ class configuration(object):
             if parsed:
                 yield lineno + 1, parsed
         fp.close()
-    def __init__(self, filename):
+    def __init__(self, filename, log = None):
         self.commands = dict((name[4:], getattr(self, name)(self))
                              for name in dir(self) if name.startswith('cmd_'))
         self.act = True
+        self.log = log if log is not None else logging.getLogger('uptitude.configuration')
         for (lineno, cmd) in self.readconf(filename):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
@@ -65,22 +90,30 @@ class configuration(object):
                 raise notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
 
 def main(argv):
+    logging.basicConfig(level = logging.DEBUG,
+                        format = '%(asctime)s %(name)s.%(funcName)s:%(lineno)d %(message)s')
+    log = logging.getLogger(os.path.basename(argv[0] or 'uptitude'))
+
     cache = apt.Cache()
 
-    conf = configuration('conf')
+    conf = configuration('conf', log = log)
 
     try:
-        cache.update(apt.progress.TextFetchProgress())
-    except Exception, e:
-        print e
-        print 'continuing...'
+        cache.update(LogFetchProgress(log))
+    except Exception:
+        log.exception('ignoring exception from update')
 
     filtered = apt.cache.FilteredCache(cache)
     filtered.setFilter(UpgradableFilter())
 
     for p in filtered:
         if p.installed < p.candidate and any(o.label=='Debian-Security' and o.trusted for o in p.candidate.origins):
-            print p.candidate
+            log.info('%s is upgradable (from %s)', p.candidate, p.candidate.origins)
 
 if __name__ == '__main__':
-    main(sys.argv)
+    try:
+        main(sys.argv)
+    except SystemExit:
+        raise
+    except:
+        logging.exception('at top level')
