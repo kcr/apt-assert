@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import sys, os, shlex, logging
+import sys, os, shlex, logging, optparse
 import apt
 
 class InstalledFilter(apt.cache.Filter):
@@ -103,13 +103,22 @@ class configuration(object):
                 raise notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
 
 def main(argv):
+    parser = optparse.OptionParser()
+    parser.add_option('-c', '--conf', dest='conffile',
+                      help='configuration file', default='conf')
+    parser.add_option('-v', '--verbose', dest='verbose', action='count',
+                      help='increase verbosity')
+    (options, args) = parser.parse_args(argv)
+
+    level = logging.DEBUG #logging.WARNING
+    level -= max(options.verbose*10, level - logging.DEBUG)
     logging.basicConfig(level = logging.DEBUG,
                         format = '%(asctime)s %(name)s.%(funcName)s:%(lineno)d %(message)s')
     log = logging.getLogger(os.path.basename(argv[0] or 'uptitude'))
 
     cache = apt.Cache()
 
-    conf = configuration('conf', log = log)
+    conf = configuration(options.conffile, log = log)
 
     try:
         cache.update(LogFetchProgress(log))
