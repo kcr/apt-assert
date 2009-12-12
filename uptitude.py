@@ -40,12 +40,17 @@ class LogFetchProgress(apt.progress.FetchProgress):
         return False
 
 class configuration(object):
+    "Configuration manager for apt-assert"
+    
     class configurationError(Exception):
         pass
+
     class parseError(configurationError):
         pass
+
     class notfoundError(configurationError):
         pass
+
     class confcommand(object):
         def __init__(self, conf):
             self.conf = conf
@@ -53,22 +58,29 @@ class configuration(object):
             self.run(argv)
         def run(self, argv):
             self.conf.log.error('%s is unimplemented', self.__class__.__name__)
+
     class action(confcommand):
         def call(self, argv):
             if self.conf.act:
                 super(configuration.action, self).call(argv)
+
     class cmd_upgrade(action):
         pass
+
     class cmd_install(action):
         pass
+
     class cmd_remove(action):
         pass
+
     class cmd_hold(action):
         pass
+
     class cmd_class(confcommand):
         pass
+
     @staticmethod
-    def readconf(filename):
+    def __readconf(filename):
         fp = open(filename)
         for (lineno, line) in enumerate(fp):
             try:
@@ -78,12 +90,13 @@ class configuration(object):
             if parsed:
                 yield lineno + 1, parsed
         fp.close()
+
     def __init__(self, filename, log = None):
         self.commands = dict((name[4:], getattr(self, name)(self))
                              for name in dir(self) if name.startswith('cmd_'))
         self.act = True
         self.log = log if log is not None else logging.getLogger('uptitude.configuration')
-        for (lineno, cmd) in self.readconf(filename):
+        for (lineno, cmd) in self.__readconf(filename):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
