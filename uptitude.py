@@ -79,18 +79,6 @@ class state(object):
     class cmd_class(confcommand):
         pass
 
-    @staticmethod
-    def __readconf(filename):
-        fp = open(filename)
-        for (lineno, line) in enumerate(fp):
-            try:
-                parsed = shlex.split(line, True)
-            except Exception, e:
-                raise state.parseerror('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
-            if parsed:
-                yield lineno + 1, parsed
-        fp.close()
-
     def __init__(self, options, log = None):
         self.options = options
         self.log = log
@@ -109,11 +97,22 @@ class state(object):
             except Exception:
                 self.log.exception('ignoring exception from update')
 
-        for (lineno, cmd) in self.__readconf(self.options.conffile):
+        for (lineno, cmd) in readconf(self.options.conffile):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
                 raise notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
+
+def readconf(filename):
+    fp = open(filename)
+    for (lineno, line) in enumerate(fp):
+        try:
+            parsed = shlex.split(line, True)
+        except Exception, e:
+            raise state.parseerror('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
+        if parsed:
+            yield lineno + 1, parsed
+    fp.close()
 
 def main(argv):
     parser = optparse.OptionParser()
