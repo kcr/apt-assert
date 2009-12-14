@@ -91,12 +91,14 @@ class state(object):
                 yield lineno + 1, parsed
         fp.close()
 
-    def __init__(self, filename, log = None):
+    def __init__(self, options, log = None):
+        self.options = options
+        self.log = log
         self.commands = dict((name[4:], getattr(self, name)(self))
                              for name in dir(self) if name.startswith('cmd_'))
-        self.act = True
-        self.log = log if log is not None else logging.getLogger('uptitude.state')
-        for (lineno, cmd) in self.__readconf(filename):
+        self.act = not options.dry_run
+        self.log.debug('act is %s', self.act)
+        for (lineno, cmd) in self.__readconf(options.conffile):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
@@ -106,6 +108,8 @@ def main(argv):
     parser = optparse.OptionParser()
     parser.add_option('-c', '--conf', dest='conffile',
                       help='configuration file', default='conf')
+    parser.add_option('-n', '--dry-run', dest='dry_run', action='store_true',
+                      help="don't actually do anything")
     parser.add_option('-v', '--verbose', dest='verbose', action='count',
                       help='increase verbosity')
     (options, args) = parser.parse_args(argv)
@@ -118,7 +122,7 @@ def main(argv):
 
     cache = apt.Cache()
 
-    conf = state(options.conffile, log = log)
+    conf = state(options, log)
 
     try:
         cache.update(LogFetchProgress(log))
