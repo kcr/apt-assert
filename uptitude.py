@@ -39,7 +39,7 @@ class LogFetchProgress(apt.progress.FetchProgress):
         self.log.error('Media change: looking for %s in %s', medium, drive)
         return False
 
-class configuration(object):
+class state(object):
     "Configuration manager for apt-assert"
     
     class configurationError(Exception):
@@ -62,7 +62,7 @@ class configuration(object):
     class action(confcommand):
         def call(self, argv):
             if self.conf.act:
-                super(configuration.action, self).call(argv)
+                super(state.action, self).call(argv)
 
     class cmd_upgrade(action):
         pass
@@ -86,7 +86,7 @@ class configuration(object):
             try:
                 parsed = shlex.split(line, True)
             except Exception, e:
-                raise configuration.parseerror('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
+                raise state.parseerror('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
             if parsed:
                 yield lineno + 1, parsed
         fp.close()
@@ -95,7 +95,7 @@ class configuration(object):
         self.commands = dict((name[4:], getattr(self, name)(self))
                              for name in dir(self) if name.startswith('cmd_'))
         self.act = True
-        self.log = log if log is not None else logging.getLogger('uptitude.configuration')
+        self.log = log if log is not None else logging.getLogger('uptitude.state')
         for (lineno, cmd) in self.__readconf(filename):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
@@ -118,7 +118,7 @@ def main(argv):
 
     cache = apt.Cache()
 
-    conf = configuration(options.conffile, log = log)
+    conf = state(options.conffile, log = log)
 
     try:
         cache.update(LogFetchProgress(log))
