@@ -101,7 +101,7 @@ class state(object):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
-                raise notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
+                raise state.notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
 
 def readconf(filename):
     fp = open(filename)
@@ -109,7 +109,7 @@ def readconf(filename):
         try:
             parsed = shlex.split(line, True)
         except Exception, e:
-            raise state.parseerror('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
+            raise state.parseError('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
         if parsed:
             yield lineno + 1, parsed
     fp.close()
