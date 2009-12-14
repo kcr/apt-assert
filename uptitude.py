@@ -98,7 +98,18 @@ class state(object):
                              for name in dir(self) if name.startswith('cmd_'))
         self.act = not options.dry_run
         self.log.debug('act is %s', self.act)
-        for (lineno, cmd) in self.__readconf(options.conffile):
+        self.cache = apt.Cache()
+
+    def go(self):
+        if self.options.dry_run:
+            self.log.warn('Not updating package lists')
+        else:
+            try:
+                self.cache.update(LogFetchProgress(self.log))
+            except Exception:
+                self.log.exception('ignoring exception from update')
+
+        for (lineno, cmd) in self.__readconf(self.options.conffile):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
@@ -110,31 +121,18 @@ def main(argv):
                       help='configuration file', default='conf')
     parser.add_option('-n', '--dry-run', dest='dry_run', action='store_true',
                       help="don't actually do anything")
-    parser.add_option('-v', '--verbose', dest='verbose', action='count',
+    parser.add_option('-v', '--verbose', dest='verbose', action='count', default=0,
                       help='increase verbosity')
     (options, args) = parser.parse_args(argv)
 
-    level = logging.DEBUG #logging.WARNING
-    level -= max(options.verbose*10, level - logging.DEBUG)
-    logging.basicConfig(level = logging.DEBUG,
+    loglevel = max(logging.WARNING - options.verbose*10, logging.DEBUG)
+    logging.basicConfig(level = loglevel,
                         format = '%(asctime)s %(name)s.%(funcName)s:%(lineno)d %(message)s')
     log = logging.getLogger(os.path.basename(argv[0] or 'uptitude'))
-
-    cache = apt.Cache()
+    log.debug('loglevel is %d', loglevel)
 
     conf = state(options, log)
-
-    try:
-        cache.update(LogFetchProgress(log))
-    except Exception:
-        log.exception('ignoring exception from update')
-
-    filtered = apt.cache.FilteredCache(cache)
-    filtered.setFilter(UpgradableFilter())
-
-    for p in filtered:
-        if p.installed < p.candidate and any(o.label=='Debian-Security' and o.trusted for o in p.candidate.origins):
-            log.info('%s is upgradable (from %s)', p.candidate, p.candidate.origins)
+    conf.go()
 
 if __name__ == '__main__':
     try:
