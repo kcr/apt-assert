@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import sys, os, shlex, logging, optparse
+import sys, os, shlex, logging, optparse, itertools, re
 import apt
 
 class InstalledFilter(apt.cache.Filter):
@@ -42,9 +42,11 @@ class LogFetchProgress(apt.progress.FetchProgress):
 class state(object):
     "Configuration manager for apt-assert"
     
-    def __init__(self, options, log = None):
+    def __init__(self, options, log, classes):
         self.options = options
         self.log = log
+        self.classes = classes
+
         self.commands = dict((name[4:], getattr(self, name)(self))
                              for name in dir(self) if name.startswith('cmd_'))
         self.act = not options.dry_run
@@ -60,17 +62,21 @@ class state(object):
     class notfoundError(configurationError):
         pass
 
+    class usageError(configurationError):
+        pass
+
     class confcommand(object):
-        def __init__(self, conf):
-            self.conf = conf
+        def __init__(self, state):
+            self.state = state
+            self.log = state.log
         def call(self, argv):
             self.run(argv)
         def run(self, argv):
-            self.conf.log.error('%s is unimplemented', self.__class__.__name__)
+            self.log.error('%s is unimplemented', self.__class__.__name__)
 
     class action(confcommand):
         def call(self, argv):
-            if self.conf.act:
+            if self.state.act:
                 super(state.action, self).call(argv)
 
     class cmd_upgrade(action):
@@ -85,8 +91,23 @@ class state(object):
     class cmd_hold(action):
         pass
 
+    class cmd_classfile(confcommand):
+        def run(self, argv):
+            if len(argv) != 2:
+                raise state.parseError('classfile takes exactly one argument')
+            if self.state.classes is None:
+                self.state.classes = set(readclasses(argv[1]))
+            self.log.debug('classes from "%s": %s', argv[1], ' '.join(sorted(self.state.classes)))
+
     class cmd_class(confcommand):
-        pass
+        def run(self, argv):
+            if len(argv) != 2:
+                raise state.parseError('class takes exactly one argument')
+            if self.state.classes is not None and argv[1] in self.state.classes:
+                self.state.act = True
+            else:
+                self.state.act = False
+            self.log.debug('state.act = %s', self.state.act)
 
     def go(self):
         if self.options.dry_run:
@@ -98,6 +119,7 @@ class state(object):
                 self.log.exception('ignoring exception from update')
 
         for (lineno, cmd) in readconf(self.options.conffile):
+            self.log.debug('command: "%s"', ' '.join(cmd))
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
@@ -114,6 +136,10 @@ def readconf(filename):
             yield lineno + 1, parsed
     fp.close()
 
+def readclasses(filename):
+    for name in itertools.chain(*(parsed for (lineno, parsed) in readconf(filename))):
+        yield name
+
 def main(argv):
     parser = optparse.OptionParser()
     parser.add_option('-c', '--conf', dest='conffile',
@@ -122,6 +148,10 @@ def main(argv):
                       help="don't actually do anything")
     parser.add_option('-v', '--verbose', dest='verbose', action='count', default=0,
                       help='increase verbosity')
+    parser.add_option('-C', '--class-file', dest='classfile', default=None,
+                      help='file with a list of classes (overrides configuration directive)')
+    parser.add_option('--classes', dest='classes', default=None,
+                      help='all-overriding list of classes')
     (options, args) = parser.parse_args(argv)
 
     loglevel = max(logging.WARNING - options.verbose*10, logging.DEBUG)
@@ -130,7 +160,15 @@ def main(argv):
     log = logging.getLogger(os.path.basename(argv[0] or 'uptitude'))
     log.debug('loglevel is %d', loglevel)
 
-    conf = state(options, log)
+    classes = None
+    if options.classes:
+        classes = set(re.split(r'[\W+]', options.classes))
+        log.debug('classes from command line: %s', ' '.join(sorted(classes)))
+    elif options.classfile:
+        classes = set(readclasses(options.classfile))
+        log.debug('classes from "%s": %s', options.classfile, ' '.join(sorted(classes)))
+
+    conf = state(options, log, classes)
     conf.go()
 
 if __name__ == '__main__':

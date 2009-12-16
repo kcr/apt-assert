@@ -1,6 +1,8 @@
 # update from repositories that match
 upgrade --label Debian-Security --trusted
 
+classfile classes
+
 # install some useful stuff
 install git-core fakeroot build-essential postfix
 # everything in priority standard
