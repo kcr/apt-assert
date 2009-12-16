@@ -42,6 +42,15 @@ class LogFetchProgress(apt.progress.FetchProgress):
 class state(object):
     "Configuration manager for apt-assert"
     
+    def __init__(self, options, log = None):
+        self.options = options
+        self.log = log
+        self.commands = dict((name[4:], getattr(self, name)(self))
+                             for name in dir(self) if name.startswith('cmd_'))
+        self.act = not options.dry_run
+        self.log.debug('act is %s', self.act)
+        self.cache = apt.Cache()
+
     class configurationError(Exception):
         pass
 
@@ -78,15 +87,6 @@ class state(object):
 
     class cmd_class(confcommand):
         pass
-
-    def __init__(self, options, log = None):
-        self.options = options
-        self.log = log
-        self.commands = dict((name[4:], getattr(self, name)(self))
-                             for name in dir(self) if name.startswith('cmd_'))
-        self.act = not options.dry_run
-        self.log.debug('act is %s', self.act)
-        self.cache = apt.Cache()
 
     def go(self):
         if self.options.dry_run:
