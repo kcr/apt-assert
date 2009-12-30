@@ -39,6 +39,37 @@ class LogFetchProgress(apt.progress.FetchProgress):
         self.log.error('Media change: looking for %s in %s', medium, drive)
         return False
 
+class LogInstallProgress(apt.progress.InstallProgress):
+    def __init(self, log):
+        super(LogInstallProgress,self).__init__()
+        self.log = log
+    def error(self, pkg, errormsg):
+        self.log.error("installing %s: %s", pkg, errormsg)
+    def conffile(self, current, new):
+        self.log.info("conffile: %s -> %s", current, new)
+    def statusChange(self, pkg, percent, status):
+        self.log.info("status: %s %s %s", pkg, percent, status)
+
+class configurationError(Exception):
+    pass
+
+class parseError(configurationError):
+    pass
+
+class notfoundError(configurationError):
+    pass
+
+class usageError(configurationError):
+    pass
+
+class configOptionParser(optparse.OptionParser):
+    def exit(self, status=0, msg=None):
+        if status or msg:
+            raise parseError(msg)
+
+    def error(self, msg):
+        raise parseError(msg)
+
 class state(object):
     "Configuration manager for apt-assert"
     
@@ -49,21 +80,9 @@ class state(object):
 
         self.commands = dict((name[4:], getattr(self, name)(self))
                              for name in dir(self) if name.startswith('cmd_'))
-        self.act = not options.dry_run
+        self.act = True
         self.log.debug('act is %s', self.act)
         self.cache = apt.Cache()
-
-    class configurationError(Exception):
-        pass
-
-    class parseError(configurationError):
-        pass
-
-    class notfoundError(configurationError):
-        pass
-
-    class usageError(configurationError):
-        pass
 
     class confcommand(object):
         def __init__(self, state):
@@ -80,7 +99,29 @@ class state(object):
                 super(state.action, self).call(argv)
 
     class cmd_upgrade(action):
-        pass
+        def run(self, argv):
+            parser = configOptionParser(add_help_option=False)
+            parser.add_option('--component', dest='component')
+            parser.add_option('--archive', dest='archive')
+            parser.add_option('--origin', dest='origin')
+            parser.add_option('--label', dest='label')
+            parser.add_option('--site', dest='site')
+            parser.add_option('--trusted', dest='trusted', action='store_true')
+            (options, args) = parser.parse_args(argv)
+            if args[1:]:
+                raise parseError('spurious args', args[1:])
+            restrictions = [(val, getattr(options, val))
+                            for val in ('component', 'archive', 'origin', 'label', 'site', 'trusted')
+                            if getattr(options, val)]
+            self.log.debug('walking the cache for upgrade, restrictions=%s', restrictions)
+            for p in self.state.cache:
+                if p.isInstalled and p.installed < p.candidate and p.isUpgradable:
+                    if not restrictions or any(all(getattr(o, k) == v
+                                                   for (k,v) in restrictions)
+                                               for o in p.candidate.origins):
+                        self.log.debug('marking %s for upgrade', p)
+                        p.markUpgrade()
+            self.log.debug('done walking the cache for upgrade')
 
     class cmd_install(action):
         pass
@@ -94,7 +135,7 @@ class state(object):
     class cmd_classfile(confcommand):
         def run(self, argv):
             if len(argv) != 2:
-                raise state.parseError('classfile takes exactly one argument')
+                raise parseError('classfile takes exactly one argument')
             if self.state.classes is None:
                 self.state.classes = set(readclasses(argv[1]))
             self.log.debug('classes from "%s": %s', argv[1], ' '.join(sorted(self.state.classes)))
@@ -102,7 +143,7 @@ class state(object):
     class cmd_class(confcommand):
         def run(self, argv):
             if len(argv) != 2:
-                raise state.parseError('class takes exactly one argument')
+                raise parseError('class takes exactly one argument')
             if self.state.classes is not None and argv[1] in self.state.classes:
                 self.state.act = True
             else:
@@ -123,7 +164,27 @@ class state(object):
             if cmd[0] in self.commands:
                 self.commands[cmd[0]].call(cmd)
             else:
-                raise state.notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
+                raise notfoundError('At line %d: not such command %s' % (lineno, cmd[0]), lineno)
+
+        self.log.debug("walking the cache to see what we'd do")
+        for p in self.cache:
+            flags = [v
+                     for (k, v) in [('markedInstall', 'install'),
+                                    ('markedDelete', 'delete'),
+                                    ('markedUpgrade', 'upgrade'),
+                                    ('markedDowngrade', 'downgrade'),
+                                    ('markedKeep', 'keep'),
+                                    ('markedReinstall', 'reinstall'),
+                                    ]
+                     if getattr(p, k)]
+            if flags:
+                self.log.info('%s -> %s', p, ' '.join(flags))
+
+        if not self.options.dry_run:
+            self.log.debug('committing...')
+            self.cache.commit(LogFetchProgress(self.log), LogInstallProgress(self.log))
+        else:
+            self.log.warn('not committing')
 
 def readconf(filename):
     fp = open(filename)
@@ -131,7 +192,7 @@ def readconf(filename):
         try:
             parsed = shlex.split(line, True)
         except Exception, e:
-            raise state.parseError('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
+            raise parseError('At line %d: %s' % (lineno + 1, e), lineno + 1, e)
         if parsed:
             yield lineno + 1, parsed
     fp.close()
